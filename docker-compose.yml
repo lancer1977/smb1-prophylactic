@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  smb-prophylactic:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smb-prophylactic
+    restart: unless-stopped
+    ports:
+      - "445:445"
+      - "139:139"
+    environment:
+      - TZ=${TZ:-UTC}
+      - LEGACY_SERVER=${LEGACY_SERVER:-192.168.0.106}
+      - LEGACY_SHARE=${LEGACY_SHARE:-share}
+      - SMB_WORKGROUP=${SMB_WORKGROUP:-WORKGROUP}
+    volumes:
+      - ./config/smb.conf:/etc/samba/smb.conf:ro
+      - ./scripts:/opt/smb-prophylactic/scripts:ro
+      - samba_logs:/var/log/samba
+      - samba_data:/srv/smb-bridge
+      - samba_cache:/var/lib/samba
+    networks:
+      - smb-network
+    healthcheck:
+      test: ["/usr/local/bin/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    labels:
+      - "com.smb-prophylactic.version=1.0.0"
+      - "com.smb-prophylactic.description=SMB Protocol Bridge Container"
+
+  # Optional: Health monitoring service
+  smb-monitor:
+    image: curlimages/curl:latest
+    container_name: smb-monitor
+    restart: unless-stopped
+    depends_on:
+      smb-prophylactic:
+        condition: service_healthy
+    command: >
+      sh -c "while true; do
+        if curl -s http://smb-prophylactic:445 > /dev/null 2>&1; then
+          echo '[INFO] SMB service is healthy'
+        else
+          echo '[ERROR] SMB service is down'
+        fi
+        sleep 30
+      done"
+    networks:
+      - smb-network
+
+volumes:
+  samba_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/log/smb-prophylactic
+  samba_data:
+    driver: local
+  samba_cache:
+    driver: local
+
+networks:
+  smb-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: smb-bridge
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
