@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # Main SMB service for development
+  smb-prophylactic:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: development
+    container_name: smb-prophylactic-dev
+    ports:
+      - "445:445"
+      - "139:139"
+      - "137:137/udp"
+      - "138:138/udp"
+    volumes:
+      # Mount source code for hot reloading
+      - ../:/app
+      - ../config:/etc/samba
+      - ../scripts:/scripts
+      # Mount local storage for development
+      - ./dev-storage:/storage
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=debug
+      - SAMBA_DEBUG_LEVEL=3
+    restart: unless-stopped
+    networks:
+      - smb-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "445"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Development monitoring service
+  smb-monitor:
+    image: prom/node-exporter:latest
+    container_name: smb-monitor-dev
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    networks:
+      - smb-network
+
+  # Development logging service
+  smb-logger:
+    image: fluent/fluent-bit:latest
+    container_name: smb-logger-dev
+    ports:
+      - "24224:24224"
+      - "2020:2020"
+    volumes:
+      - ./dev-logs:/var/log/smb
+      - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf
+    restart: unless-stopped
+    networks:
+      - smb-network
+
+  # Development web interface for configuration
+  smb-web-config:
+    image: nginx:alpine
+    container_name: smb-web-config-dev
+    ports:
+      - "8080:80"
+    volumes:
+      - ./web-config:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    networks:
+      - smb-network
+
+networks:
+  smb-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  dev-storage:
+    driver: local
+  dev-logs:
+    driver: local

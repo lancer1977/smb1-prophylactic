@@ -1,0 +1,154 @@
+version: '3.8'
+
+services:
+  # Main SMB service for production
+  smb-prophylactic:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: production
+    container_name: smb-prophylactic-prod
+    ports:
+      - "445:445"
+      - "139:139"
+      - "137:137/udp"
+      - "138:138/udp"
+    volumes:
+      # Read-only configuration
+      - ../config:/etc/samba:ro
+      - ../scripts:/scripts:ro
+      # Persistent storage
+      - prod-storage:/storage
+      # Logs
+      - prod-logs:/var/log/samba
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=info
+      - SAMBA_DEBUG_LEVEL=1
+    restart: unless-stopped
+    networks:
+      - smb-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "445"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"  # Non-root user
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+
+  # Production monitoring with Prometheus
+  smb-prometheus:
+    image: prom/prometheus:latest
+    container_name: smb-prometheus-prod
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - smb-network
+
+  # Production alerting
+  smb-alertmanager:
+    image: prom/alertmanager:latest
+    container_name: smb-alertmanager-prod
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+    restart: unless-stopped
+    networks:
+      - smb-network
+
+  # Production logging with centralized log management
+  smb-logging:
+    image: grafana/loki:latest
+    container_name: smb-loki-prod
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - smb-network
+
+  # Production log aggregation
+  smb-promtail:
+    image: grafana/promtail:latest
+    container_name: smb-promtail-prod
+    volumes:
+      - ./promtail-config.yaml:/etc/promtail/config.yml:ro
+      - prod-logs:/var/log/samba:ro
+      - /var/log:/var/log:ro
+    command: -config.file=/etc/promtail/config.yml
+    restart: unless-stopped
+    networks:
+      - smb-network
+
+  # Production web dashboard
+  smb-grafana:
+    image: grafana/grafana:latest
+    container_name: smb-grafana-prod
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./dashboards:/etc/grafana/provisioning/dashboards:ro
+    restart: unless-stopped
+    networks:
+      - smb-network
+
+networks:
+  smb-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+volumes:
+  prod-storage:
+    driver: local
+  prod-logs:
+    driver: local
+  prometheus-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+  loki-data:
+    driver: local
+  grafana-data:
+    driver: local

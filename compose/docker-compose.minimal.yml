@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Minimal SMB service
+  smb-prophylactic:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: minimal
+    container_name: smb-prophylactic-minimal
+    ports:
+      - "445:445"
+    volumes:
+      - ../config:/etc/samba:ro
+      - minimal-storage:/storage
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=error
+    restart: unless-stopped
+    networks:
+      - smb-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "445"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+
+  # Minimal monitoring (optional)
+  smb-health:
+    image: curlimages/curl:latest
+    container_name: smb-health-check
+    command: ["sh", "-c", "while true; do curl -f http://smb-prophylactic:445 || exit 1; sleep 30; done"]
+    networks:
+      - smb-network
+    depends_on:
+      - smb-prophylactic
+    restart: unless-stopped
+
+networks:
+  smb-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
+
+volumes:
+  minimal-storage:
+    driver: local
