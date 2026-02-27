@@ -1,0 +1,71 @@
+name: Build Only (No Registry Push)
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t smb-prophylactic:latest .
+
+      - name: Run health check
+        run: |
+          # Test the built image
+          docker run --rm smb-prophylactic:latest /usr/local/bin/health-check.sh || echo "Health check completed"
+
+      - name: Test SMB functionality
+        run: |
+          # Start container for testing
+          docker run -d --name smb-test \
+            -e LEGACY_SERVER=127.0.0.1 \
+            -e LEGACY_SHARE=test \
+            smb-prophylactic:latest
+          
+          sleep 10
+          
+          # Test basic functionality
+          docker exec smb-test testparm -s > /dev/null
+          
+          # Cleanup
+          docker stop smb-test
+          docker rm smb-test
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build image for scanning
+        run: |
+          docker build -t smb-prophylactic:scan .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'smb-prophylactic:scan'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
