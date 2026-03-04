@@ -19,6 +19,7 @@ jobs:
       contents: read
       packages: write
       id-token: write  # Required for GHCR authentication
+      security-events: write  # Required for CodeQL SARIF upload
 
     steps:
       - name: Checkout repository
@@ -78,7 +79,7 @@ jobs:
           output: 'trivy-results.sarif'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'

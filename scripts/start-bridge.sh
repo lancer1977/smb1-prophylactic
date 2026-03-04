@@ -64,7 +64,7 @@ trap cleanup SIGTERM SIGINT
 
 # Function to mount legacy SMB share
 mount_legacy_smb() {
-    log "${YELLOW}Mounting legacy SMB share from $LEGACY_SERVER...${NC}"
+    log "${YELLOW}Attempting to mount legacy SMB share from $LEGACY_SERVER...${NC}"
     
     # Create mount point if it doesn't exist
     mkdir -p "$MOUNT_POINT"
@@ -79,14 +79,17 @@ mount_legacy_smb() {
     if mount -t cifs "//$LEGACY_SERVER/$LEGACY_SHARE" "$MOUNT_POINT" \
         -o guest,vers=1.0,uid=samba,gid=samba,iocharset=utf8,noperm,cache=none; then
         log "${GREEN}Successfully mounted legacy SMB share${NC}"
+        # Create symbolic link to the bridge share
+        ln -sf "$MOUNT_POINT" "$BRIDGE_SHARE"
+        log "${GREEN}Legacy SMB share mounted and linked${NC}"
     else
-        error_exit "Failed to mount legacy SMB share from $LEGACY_SERVER"
+        log "${YELLOW}Warning: Failed to mount legacy SMB share from $LEGACY_SERVER${NC}"
+        log "${YELLOW}Creating empty bridge share for local access${NC}"
+        # Create empty bridge share for local access
+        mkdir -p "$BRIDGE_SHARE"
+        chown samba:samba "$BRIDGE_SHARE"
+        log "${GREEN}Local bridge share created at $BRIDGE_SHARE${NC}"
     fi
-    
-    # Create symbolic link to the bridge share
-    ln -sf "$MOUNT_POINT" "$BRIDGE_SHARE"
-    
-    log "${GREEN}Legacy SMB share mounted and linked${NC}"
 }
 
 # Function to start Samba services
@@ -99,11 +102,11 @@ start_samba() {
     
     # Start nmbd (NetBIOS name service)
     log "Starting nmbd..."
-    nmbd -D --pidfile /var/run/nmbd.pid
+    nmbd -D
     
     # Start smbd (SMB daemon)
     log "Starting smbd..."
-    smbd -D --pidfile /var/run/smbd.pid
+    smbd -D
     
     # Verify services started
     sleep 2
@@ -143,14 +146,8 @@ health_check() {
         return $?
     fi
     
-    # Check if legacy share is mounted
-    if ! mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
-        log "${RED}Legacy share not mounted, attempting remount...${NC}"
-        cleanup
-        sleep 2
-        mount_legacy_smb
-        return $?
-    fi
+    # Note: We don't check if legacy share is mounted here to avoid unnecessary restarts
+    # The mount_legacy_smb function handles the case where the legacy server is unavailable
     
     return 0
 }

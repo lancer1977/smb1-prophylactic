@@ -8,11 +8,7 @@ services:
       dockerfile: Dockerfile
       target: development
     container_name: smb-prophylactic-dev
-    ports:
-      - "445:445"
-      - "139:139"
-      - "137:137/udp"
-      - "138:138/udp"
+    network_mode: host
     volumes:
       # Mount source code for hot reloading
       - ../:/app
@@ -26,10 +22,8 @@ services:
       - LOG_LEVEL=debug
       - SAMBA_DEBUG_LEVEL=3
     restart: unless-stopped
-    networks:
-      - smb-network
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "445"]
+      test: ["CMD", "nc", "-z", "localhost", "1445"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -51,8 +45,6 @@ services:
       - '--path.sysfs=/host/sys'
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
     restart: unless-stopped
-    networks:
-      - smb-network
 
   # Development logging service
   smb-logger:
@@ -65,8 +57,6 @@ services:
       - ./dev-logs:/var/log/smb
       - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf
     restart: unless-stopped
-    networks:
-      - smb-network
 
   # Development web interface for configuration
   smb-web-config:
@@ -78,15 +68,6 @@ services:
       - ./web-config:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     restart: unless-stopped
-    networks:
-      - smb-network
-
-networks:
-  smb-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
 
 volumes:
   dev-storage:
