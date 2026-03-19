@@ -52,6 +52,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+    - name: Keep only latest 3 GHCR versions
+      if: github.event_name == 'push' || github.event_name == 'release'
+      uses: actions/delete-package-versions@v5
+      with:
+        package-name: ${{ github.event.repository.name }}
+        package-type: container
+        owner: ${{ github.repository_owner }}
+        min-versions-to-keep: 3
+
       - name: Deploy to staging
         if: github.ref != 'refs/heads/main'
         run: |
