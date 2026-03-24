@@ -295,3 +295,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ---
 
 **Made with ❤️ for legacy system integration**
+
+## 📖 Documentation
+Detailed documentation can be found in the following sections:
+- [Feature Index](./docs/features/README.md)
+- [Core Capabilities](./docs/features/core-capabilities.md)
